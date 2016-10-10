@@ -23,7 +23,7 @@ _main:
     # -56(%rbp) - client addr len
     pushq   %rbp                # Push the base pointer to the stack
     movq    %rsp, %rbp          # Make the base pointer the current stack
-    subq    $56, %rsp           # Add stack space
+    subq    $64, %rsp           # Add stack space
     movl    %edi, -4(%rbp)
     movq    %rsi, -16(%rbp)
 
@@ -32,13 +32,16 @@ _main:
     call _printf
     # Create initial socket
     movq    $2, %rdi            # Argument 1 - AF_INET Domain
-
+    movq    $1, %rsi            # Argument 2 - SOCK_STREAM Type
     movq    $0, %rdx            # Argument 3 - IP Protocol
     call    _socket
     cmpq $0, %rax
     jl errored
     movq    %rax, -24(%rbp)     # Store fd for socket
  
+    leaq _debug_msg(%rip), %rdi
+    movq $2, %rsi
+    call _printf
     # Create sockaddr strcture
     movq $16, %rdi              # Argument 1 - sockaddr length
     call _malloc
@@ -46,9 +49,10 @@ _main:
 
     movb $2, 1(%rax)            # Set SIN_Family to AF_INET (IPv4)
     movw $35091, 2(%rax)        # Set SIN_Port to 5001
-    movb $0, 3(%rax)            # Set SIN_ADDR to INADDR_ANY (0)
+    movl $0, 4(%rax)            # Set SIN_ADDR to INADDR_ANY (0)
 
-    leaq _msg(%rip), %rdi
+    leaq _debug_msg(%rip), %rdi
+    movq $3, %rsi
     call _printf
     # Create client sockaddr
     movq $16, %rdi              # Argument 1 - sockaddr length
@@ -58,6 +62,9 @@ _main:
 
     movq %rax, -40(%rbp)
 
+    leaq _debug_msg(%rip), %rdi
+    movq $4, %rsi
+    call _printf
     # Bind in preperation
     movq -24(%rbp), %rdi        # Argument 1 - socketfd
     movq -32(%rbp), %rsi        # Argument 2 - sockaddr
@@ -65,39 +72,46 @@ _main:
     call _bind
     cmpq $0, %rax
     jl errored
+
+    leaq _debug_msg(%rip), %rdi
+    movq $5, %rsi
+    call _printf
     # Listen
-
-   jl errored
- 
-
-
-
-
-
-
-    movq %rax, -48(%rbp)        # Returns new sockfd (20)
-
-    # Respond to connection
-    movq -48(%rbp), %rdi        # Argument 1 - response socketfd
-    leaq _msg(%rip), %rsi       # Argument 2 - response string
-    movq $20, %rdx              # Argument 3 - length of response
-    call _write
+    movq -24(%rbp), %rdi        # Argument 1 - socketfd
+    movq $1, %rsi               # Argument 2 - connection backlogs
+    call _listen
     cmpq $0, %rax
     jl errored
 
-    # Close response socket
-    movq -40(%rbp), %rdi        # Argument 1 - rsponse socketfd
-    call _close
-
-    # Close listening socket
+    leaq _debug_msg(%rip), %rdi
+    movq $6, %rsi
+    call _printf
+    # Accept connection
     movq -24(%rbp), %rdi        # Argument 1 - socketfd
-    call _close
+    movq -40(%rbp), %rsi        # Argument 2 - client sockaddr
+    movq $16, (%rsp)            # Argument 3 - set and point client len
+    movq %rsp, %rdx
+    call _accept
+    cmpq $0, %rax
+    jl errored
 
-    jmp return_prep
-errored:
-    callq ___error
-    movq (%rax), %rsi
-    leaq _error_msg(%rip), %rdi
+    movq %rax, -48(%rbp)        # Store new client sockfd
+
+    leaq _debug_msg(%rip), %rdi
+    movq $7, %rsi
+    call _printf
+    # Collect request
+    movq $256, %rdi             # Create a buffer of 255 bytes
+    call _malloc
+    movq -48(%rbp), %rdi        # Argument 1 - client sockfd
+    movq %rax, %rsi             # Argument 2 - buffer
+    movq $255, %rdx             # Argument 3 - read lenth
+    call _read                  # Read buffer
+    movq %rsi, %rdi             # Argument 1 - buffer
+    call _free                  # Free the buffer
+
+    leaq _debug_msg(%rip), %rdi
+    movq $7, %rsi
     call _printf
     # Respond to connection
     movq -48(%rbp), %rdi        # Argument 1 - response socketfd
@@ -124,7 +138,7 @@ errored:
 
 return_prep:
     # Prepping for return
-    addq    $56, %rsp
+    addq    $64, %rsp
     popq    %rbp
 
     movq $0, %rax
